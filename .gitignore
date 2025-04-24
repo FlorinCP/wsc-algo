@@ -1,0 +1,6 @@
+/.idea
+/cmake-build-debug
+/cmake-build-debug/.cmake
+*.log
+*.ninja
+*.cmake
