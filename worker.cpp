@@ -64,7 +64,7 @@ void solverWorker(
     while (currentLine < endLine && std::getline(inputFile, line)) {
         processedCounter.fetch_add(1, std::memory_order_relaxed);
         line.erase(std::remove_if(line.begin(), line.end(),
-                   [](unsigned char c){ return std::isspace(c); }), line.end());
+                   [](unsigned char c){ return c == '\r' || c == '\n' || std::isspace(c); }), line.end());
 
         bool was_solved = false;
 
