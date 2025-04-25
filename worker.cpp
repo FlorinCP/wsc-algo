@@ -35,7 +35,7 @@ void solverWorker(
     }
 
     // Open the temporary file for this worker *only*
-    std::ofstream tempOutputFile(tempOutputFilename);
+    std::ofstream tempOutputFile(tempOutputFilename, std::ios::binary);
     if (!tempOutputFile) {
         std::cerr << "Worker " << workerId << " Error: Cannot open temporary output file: " << tempOutputFilename << std::endl;
         errorFlag.store(true, std::memory_order_relaxed); // Signal error
