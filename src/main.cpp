@@ -1,23 +1,20 @@
-#include "worker.hpp" // Provides the solverWorker function declaration
+#include "worker.hpp"
 
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <string>
 #include <thread>
-// #include <mutex> // No longer needed here
 #include <atomic>
 #include <algorithm>
 #include <exception>
 #include <iterator>
 #include <functional>
 #include <stdexcept>
-#include <cstdio> // For std::remove (deleting temp files)
+#include <cstdio>
 
-namespace { // Anonymous namespace for utility functions
+namespace {
 
-    // countTotalLines, countPuzzleLines, determineThreadCount functions remain the same...
-    // (Paste the versions from the previous good response here)
     size_t countTotalLines(const std::string& filename) {
         std::ifstream file(filename);
         if (!file) {
@@ -89,26 +86,20 @@ namespace { // Anonymous namespace for utility functions
             return false;
         }
 
-        // Buffer for reading from temp files
-        constexpr size_t READ_BUFFER_SIZE = 8192; // 8KB buffer
+        constexpr size_t READ_BUFFER_SIZE = 8192;
         std::vector<char> buffer(READ_BUFFER_SIZE);
 
         bool success = true;
 
         for (unsigned i = 0; i < numThreads; ++i) {
             std::string tempFilename = tempFilePrefix + std::to_string(i) + ".tmp";
-            std::ifstream tempInputFile(tempFilename, std::ios::binary); // Open in binary for efficient copying
+            std::ifstream tempInputFile(tempFilename, std::ios::binary);
 
             if (!tempInputFile) {
-                // It's possible a thread processed an empty range or had an error,
-                // so the temp file might not exist. Don't treat this as a fatal error
-                // unless we expect *all* threads to always produce output.
                  std::cerr << "Warning: Could not open temporary file: " << tempFilename << ". Skipping." << std::endl;
-                // If this *should* always exist, set success = false here.
                 continue;
             }
 
-            // Read from temp file and write to final output file
             while (tempInputFile.read(buffer.data(), buffer.size())) {
                 finalOutputFile.write(buffer.data(), tempInputFile.gcount());
                 if(!finalOutputFile) {
@@ -116,7 +107,6 @@ namespace { // Anonymous namespace for utility functions
                     success = false; break;
                 }
             }
-            // Handle the last partial read (if any)
             if (success && tempInputFile.gcount() > 0) {
                 finalOutputFile.write(buffer.data(), tempInputFile.gcount());
                  if(!finalOutputFile) {
@@ -124,71 +114,53 @@ namespace { // Anonymous namespace for utility functions
                     success = false;
                 }
             }
-             if(!success) break; // Stop if write failed
+             if(!success) break;
 
-            tempInputFile.close(); // Close the temporary file handle
+            tempInputFile.close();
 
-            // Delete the temporary file after successful concatenation
             if (std::remove(tempFilename.c_str()) != 0) {
-                 // Report error but don't necessarily fail the whole process
                  std::cerr << "Warning: Could not remove temporary file: " << tempFilename << std::endl;
             }
         }
 
-        finalOutputFile.close(); // Ensure final file is closed
+        finalOutputFile.close();
 
-        if(success) {
-            std::cout << "Concatenation complete." << std::endl;
-        } else {
-             std::cerr << "Concatenation failed due to errors." << std::endl;
+        if(!success) {
+           std::cerr << "Concatenation failed due to errors." << std::endl;
         }
         return success;
     }
 
 
-} // namespace
+}
 
 
 int main(int argc, char* argv[]) {
     try {
-        // --- Configuration and Argument Parsing ---
         std::string inputFilename = "input.txt";
         std::string outputFilename = "output.txt";
         std::string threadsArg = "";
-        // Define a base name for temporary files
         const std::string tempFilePrefix = outputFilename + "_part_";
 
         if (argc > 1) inputFilename = argv[1];
         if (argc > 2) outputFilename = argv[2];
         if (argc > 3) threadsArg = argv[3];
 
-        std::cout << "Input file: " << inputFilename << std::endl;
-        std::cout << "Output file: " << outputFilename << std::endl;
-
-        // --- File Pre-checks and Counting ---
         size_t puzzleCount = countPuzzleLines(inputFilename);
-        std::cout << "Found " << puzzleCount << " potential puzzles." << std::endl;
         size_t totalLines = countTotalLines(inputFilename);
         if (totalLines == 0) {
              std::cout << "Input file is empty or unreadable. Exiting." << std::endl;
-             return (puzzleCount > 0) ? 1 : 0; // Error if puzzles expected but no lines read
+             return (puzzleCount > 0) ? 1 : 0;
         }
-        std::cout << "Total lines in file: " << totalLines << std::endl;
 
-        // --- Thread Determination ---
         unsigned numThreads = determineThreadCount(threadsArg, totalLines);
-        std::cout << "Using " << numThreads << " threads for processing." << std::endl;
 
-        // --- Resource Initialization ---
         std::vector<std::thread> workers;
-        // std::ofstream outputFile(outputFilename); // DON'T open final output yet
-        // std::mutex outputMutex; // DON'T need mutex anymore
         std::atomic<size_t> solvedCounter(0);
         std::atomic<size_t> processedCounter(0);
-        std::atomic<bool> workerErrorFlag(false); // Flag for workers to signal critical errors
+        std::atomic<bool> workerErrorFlag(false);
 
 
-        // --- Work Distribution and Thread Creation ---
         size_t startLine = 0;
         size_t linesPerThread = (totalLines + numThreads - 1) / numThreads;
         workers.reserve(numThreads);
@@ -196,55 +168,40 @@ int main(int argc, char* argv[]) {
         for (unsigned i = 0; i < numThreads; ++i) {
             size_t endLine = std::min(startLine + linesPerThread, totalLines);
             if (startLine < endLine) {
-                // Pass tempFilePrefix instead of outputFile and outputMutex
-                // Pass the error flag reference
                 workers.emplace_back(SudokuApp::solverWorker,
                                      i,
                                      std::cref(inputFilename),
-                                     std::cref(tempFilePrefix), // Pass prefix by const ref
+                                     std::cref(tempFilePrefix),
                                      startLine,
                                      endLine,
                                      std::ref(solvedCounter),
                                      std::ref(processedCounter),
-                                     std::ref(workerErrorFlag)); // Pass error flag by ref
+                                     std::ref(workerErrorFlag));
             }
             startLine = endLine;
             if (startLine >= totalLines) break;
         }
 
-        // --- Wait for Threads to Complete ---
-        std::cout << "Waiting for " << workers.size() << " worker thread(s) to finish..." << std::endl;
         for (auto& t : workers) {
             if (t.joinable()) {
                  t.join();
             }
         }
-        std::cout << "All workers finished." << std::endl;
 
-
-        // --- Post-Processing: Concatenate Files and Report ---
         bool concatenation_ok = false;
         if (workerErrorFlag.load()) {
              std::cerr << "One or more workers reported an error. Skipping concatenation." << std::endl;
-             // Optionally try to clean up any temp files that might exist
              for (unsigned i = 0; i < numThreads; ++i) std::remove((tempFilePrefix + std::to_string(i) + ".tmp").c_str());
         } else {
-            // Concatenate temporary files into the final output file
             concatenation_ok = concatenateOutputFiles(outputFilename, tempFilePrefix, numThreads);
         }
 
 
-        // Print final summary based on counters.
-        std::cout << "----------------------------------------" << std::endl;
-        std::cout << "Processing Summary:" << std::endl;
-        std::cout << "  Lines processed by workers: " << processedCounter.load() << " (Target: " << totalLines << ")" << std::endl;
-        std::cout << "  Successfully solved puzzles:  " << solvedCounter.load() << std::endl;
         if(!workerErrorFlag.load() && !concatenation_ok) {
              std::cout << "  WARNING: Concatenation step failed!" << std::endl;
         } else if (workerErrorFlag.load()){
              std::cout << "  WARNING: Worker error occurred during processing!" << std::endl;
         }
-        std::cout << "----------------------------------------" << std::endl;
 
 
     } catch (const std::exception& e) {
